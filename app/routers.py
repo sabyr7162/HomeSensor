@@ -1,111 +1,21 @@
 from fastapi import APIRouter, HTTPException, Depends, Form, Header, Query
 from fastapi.security import OAuth2PasswordBearer
-from pwdlib import PasswordHash
-from pydantic import BaseModel
 from sqlalchemy.orm import Session 
-import jwt
+from pwdlib import PasswordHash
 import hashlib 
 from datetime import datetime, timezone, timedelta
-from sqlalchemy import select, desc
-from typing import Dict, Any, Optional
 
-from sqlalchemy import Table, Column, Integer, String, DateTime, ForeignKey, Boolean, BigInteger, JSON
-from database import metadata
 
-from database import get_db, initialize_database
+from database import get_db
+from security import create_token, token_verify
+from schemas import *
+from crud import *
 
-router = APIRouter()
 
 password_hash = PasswordHash.recommended()
-SECRET_KEY = 'fk;lkajfiqjwirhnvnkjrioqjwoirjklasmfm454124jhhjh5534u8hdjksn'
-ALGORITHM = 'HS256'
+
+router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl='/users/login')
-
-
-
-users = Table(
-    'users',
-    metadata,
-    Column('id', Integer, autoincrement=True, primary_key=True),
-    Column('email', String, unique=True),
-    Column('hashed_password', String),
-    Column('created_at', DateTime)
-)
-
-devices = Table(
-    'devices', 
-    metadata, 
-    Column('id', Integer, autoincrement=True, primary_key=True),
-    Column('device_id', String, unique=True),
-    Column('name', String),
-    Column('user_id', Integer, ForeignKey('users.id'), nullable=False),
-    Column('token', String, unique=True, nullable=False),
-    Column('status', Boolean, nullable=False, default=True),
-    Column('created_at', DateTime)
-)
-
-measurements = Table(
-    'measurements', 
-    metadata, 
-    Column('id', Integer, primary_key=True, autoincrement=True),
-    Column('device_id', Integer, ForeignKey('devices.id'), nullable=True),
-    Column('timestamp', DateTime, index=True),
-    Column('metrics', JSON),
-    Column('received_at', DateTime)
-)
-initialize_database()
-
-def create_token(id):
-    data = {
-        'sub': str(id),
-        'exp': datetime.now(timezone.utc) + timedelta(minutes=30)
-    }
-    return jwt.encode(data, SECRET_KEY, algorithm=ALGORITHM)
-
-
-def token_verify(credentials):
-    try:
-        payload = jwt.decode(
-            credentials,
-            SECRET_KEY,
-            algorithms=[ALGORITHM]
-        )
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail='Invalid or expired token')
-    return payload
-
-
-class UserRegisterRequest(BaseModel):
-    email: str
-    password: str
-
-class UserLoginRequest(BaseModel):
-    email: str
-    password: str
-
-class DeviceRegisterRequest(BaseModel):
-    device_id: str
-    name: str
-    status: bool
-
-# find user by email/login
-def find_user(session, email):
-    query = select(users).where(users.c.email == email)
-    result = session.execute(query).mappings().first()
-    return result
-
-def find_user_by_id(session, id):
-    selected_columns = [col for col in users.c if col.name != 'hashed_password']
-    query = select(*selected_columns).where(users.c.id == id)
-    result = session.execute(query).mappings().first()
-    return result 
-
-# create user 
-def create_user(session, data):
-    query = users.insert().values(data)
-    result = session.execute(query)
-    session.commit()
-    return result
 
 
 @router.post('/users', status_code=200)
@@ -130,7 +40,6 @@ def register(body: UserRegisterRequest, session: Session = Depends(get_db)):
         "user_id": user_id}
 
 
-
 @router.post('/users/login', status_code=200)
 def login(username: str = Form(...), 
         password: str = Form(...), 
@@ -144,22 +53,23 @@ def login(username: str = Form(...),
     return {'access_token': token, 'token_type': 'bearer'}
 
 
-def create_device(session, data):
-    query = devices.insert().values(data)
-    result = session.execute(query)
-    session.commit()
-    return result 
+@router.get('/users', status_code=200)
+def get_me(token: str = Depends(oauth2_scheme), session: Session = Depends(get_db)):
+    payload = token_verify(token)
+    user_id = payload.get('sub')
+    data = find_user_by_id(session, user_id)
+    return data
 
 
-def find_devices(session, user_id):
-    query = select(devices).where(devices.c.user_id == user_id)
-    result = session.execute(query).mappings().fetchall()
-    return result
+@router.delete('/users', status_code=200)
+def delete_user(token: str = Depends(oauth2_scheme), session: Session = Depends(get_db)):
+    payload = token_verify(token)
+    user_id = payload.get('sub')
+    result = remove_user(session, user_id)
+    if not result:
+        raise HTTPException(status_code=404, detail='User not found')
+    return {'status': 'success'}
 
-def find_device_by_id(session, device_id):
-    query = select(devices).where(devices.c.id == device_id)
-    result = session.execute(query).mappings().first()
-    return result
 
 @router.post('/users/device', status_code=201)
 def add_device(body: DeviceRegisterRequest, session: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
@@ -179,57 +89,44 @@ def add_device(body: DeviceRegisterRequest, session: Session = Depends(get_db), 
         "token": data['token'] }
 
 
-@router.get('/users', status_code=200)
-def get_me(token: str = Depends(oauth2_scheme), session: Session = Depends(get_db)):
+@router.delete('/users/device/{device_id}', status_code=200)
+def delete_device(device_id: int, token: str = Depends(oauth2_scheme), session: Session = Depends(get_db)):
     payload = token_verify(token)
     user_id = payload.get('sub')
-    data = find_user_by_id(session, user_id)
-    return data
+    result = remove_device(session, device_id, user_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Device not found")
+    return {"status": "success"}
+
 
 
 @router.get('/users/device/', status_code=200)
 def get_devices(token: str = Depends(oauth2_scheme), session: Session = Depends(get_db)):
     payload = token_verify(token)
     devices = find_devices(session, payload.get('sub'))
-    return {'devices': [devices]}
+    return {'devices': devices}
 
 
-class MeasurementsPostRequest(BaseModel):   
-    timestamp: str
-    metrics: Dict[str, Any]
+@router.get('/users/device/{device_id}', status_code=200)
+def get_device(device_id: int, 
+               token: str = Depends(oauth2_scheme), 
+               session: Session = Depends(get_db)
+               ):
+    payload = token_verify(token)
+    user_id = payload.get('sub')
+    device = find_device_by_id(session, device_id)
 
-
-def find_divice_token(session, token):
-    query = select(devices).where(devices.c.token == token)
-    result = session.execute(query).mappings().first()
-    return result
-
-
-def add_measurements(session, data):
-    query = measurements.insert().values(data)
-    result = session.execute(query)
-    session.commit()
-    return result 
-
-
-def find_measurements(session, device_id, period):
-    query = (
-        select(measurements).where(
-        (measurements.c.device_id == device_id) & 
-        (measurements.c.received_at >= period)
-        ).order_by(desc(measurements.c.received_at))
-    )
-    result = session.execute(query).mappings().all()
-    return result
-
-
+    if not device or device['user_id'] != int(user_id):
+        raise HTTPException(status_code=404, detail='Device not found')
+    return device
+ 
 # get measurements from device
 @router.post('/user/device/measurements', status_code=200)
 def recieve_measurements(
     body: MeasurementsPostRequest, 
     session: Session = Depends(get_db),
     x_device_token: str = Header(...)):
-    device = find_divice_token(session, x_device_token)
+    device = find_device_token(session, x_device_token)
     if not device:
         raise HTTPException(status_code=403, detail="Access denied")
     data = body.model_dump()
@@ -272,4 +169,16 @@ def get_measurements(
     measurements = find_measurements(session, device_id, cutoff)
     return [dict(row) for row in reversed(measurements)]
     
-    
+
+# get latests measurements from database     
+@router.get('/user/device/{device_id}/measurements/latest')
+def get_device_status(device_id: int, session: Session = Depends(get_db), token: str = Depends(oauth2_scheme)):
+    payload = token_verify(token)
+    device = find_device_by_id(session, device_id)
+    user_id = payload.get('sub')
+    if not device or device['user_id'] != int(user_id):
+        raise HTTPException(status_code=403, detail="Access denied")
+    latest = get_recent_measurement(session, device_id)
+    if not latest:
+        raise HTTPException(status_code=404, detail='No measurements found')
+    return dict(latest)
