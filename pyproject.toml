@@ -10,6 +10,9 @@ python = "^3.12"
 fastapi = "^0.162.0"
 uvicorn = "^0.54.0"
 sqlalchemy = "^2.1.8"
+pwdlib = {extras = ["argon2"], version = "^0.3.1"}
+pyjwt = "^2.15.1"
+python-multipart = "^0.0.33"
 
 
 [build-system]
