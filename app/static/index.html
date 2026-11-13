@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 IoT Telemetry Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body class="bg-slate-950 text-slate-100 min-h-screen font-sans antialiased">
+
+    <!-- ==================== AUTHENTICATION VIEW ==================== -->
+    <div id="auth-view" class="min-h-screen flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl w-full max-w-md p-8">
+            <div class="text-center mb-8">
+                <h1 class="text-2xl font-bold tracking-tight text-white">IoT Cloud Monitor</h1>
+                <p class="text-slate-400 text-sm mt-1">Sign in to manage your ESP32 telemetry</p>
+            </div>
+
+            <!-- Tabs -->
+            <div class="flex border-b border-slate-800 mb-6">
+                <button id="tab-login" onclick="switchAuthTab('login')"
+                    class="w-1/2 pb-3 text-sm font-medium border-b-2 border-emerald-500 text-emerald-400">
+                    Sign In
+                </button>
+                <button id="tab-register" onclick="switchAuthTab('register')"
+                    class="w-1/2 pb-3 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200">
+                    Register
+                </button>
+            </div>
+
+            <!-- Alert Box -->
+            <div id="auth-alert" class="hidden mb-4 p-3 rounded-lg text-sm"></div>
+
+            <!-- Login Form -->
+            <form id="login-form" onsubmit="handleLogin(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 uppercase mb-1">Email / Username</label>
+                    <input type="text" id="login-email" required placeholder="user@example.com"
+                        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 uppercase mb-1">Password</label>
+                    <input type="password" id="login-password" required placeholder="••••••••"
+                        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                </div>
+                <button type="submit"
+                    class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 rounded-lg transition">
+                    Access Dashboard
+                </button>
+            </form>
+
+            <!-- Register Form -->
+            <form id="register-form" onsubmit="handleRegister(event)" class="hidden space-y-4">
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 uppercase mb-1">Email Address</label>
+                    <input type="email" id="reg-email" required placeholder="user@example.com"
+                        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 uppercase mb-1">Password</label>
+                    <input type="password" id="reg-password" required placeholder="Create a strong password"
+                        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                </div>
+                <button type="submit"
+                    class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2.5 rounded-lg transition">
+                    Create Account
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ==================== MAIN DASHBOARD VIEW ==================== -->
+    <div id="dashboard-view" class="hidden">
+        <!-- Top Navigation -->
+        <nav class="bg-slate-900 border-b border-slate-800 px-6 py-4">
+            <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
+                <div class="flex items-center gap-3">
+                    <span class="h-3 w-3 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span class="font-bold text-lg tracking-tight">ESP32 Telemetry Hub</span>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span id="user-email-display" class="text-sm text-slate-400"></span>
+                    <button onclick="openAddDeviceModal()"
+                        class="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-3.5 py-2 rounded-lg transition">
+                        + Add Device
+                    </button>
+                    <button onclick="logout()" class="text-sm text-slate-400 hover:text-white px-2 py-1">
+                        Logout
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <main class="max-w-7xl mx-auto p-6 space-y-6">
+            <!-- Controls & Live Status Row -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <!-- Device Selector Card -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-400 uppercase mb-2">Active Device</label>
+                        <select id="device-selector" onchange="onDeviceChange()"
+                            class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500">
+                            <option value="">No devices registered</option>
+                        </select>
+                    </div>
+                    <div class="mt-4 flex items-center justify-between text-xs">
+                        <span id="device-hardware-id" class="text-slate-500 font-mono truncate max-w-[140px]">ID:
+                            --</span>
+                        <button onclick="deleteCurrentDevice()" id="delete-device-btn"
+                            class="text-rose-400 hover:text-rose-300 hidden">
+                            Delete Device
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Live Temperature Card -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-medium text-slate-400 uppercase">Live Temperature</span>
+                        <span class="text-xs px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400">Live</span>
+                    </div>
+                    <div class="my-2">
+                        <span id="live-temp" class="text-4xl font-bold text-white">--</span>
+                        <span class="text-xl text-slate-400">°C</span>
+                    </div>
+                    <span id="last-updated" class="text-xs text-slate-500">Waiting for telemetry...</span>
+                </div>
+
+                <!-- Live Humidity / Secondary Metric Card -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-medium text-slate-400 uppercase">Humidity / Metric 2</span>
+                        <span class="text-xs px-2 py-0.5 rounded bg-blue-500/10 text-blue-400">Sensor</span>
+                    </div>
+                    <div class="my-2">
+                        <span id="live-humidity" class="text-4xl font-bold text-white">--</span>
+                        <span class="text-xl text-slate-400">%</span>
+                    </div>
+                    <span id="polling-indicator" class="text-xs text-slate-500">Polling every 5s</span>
+                </div>
+
+                <!-- Time Range Filter Card -->
+                <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between">
+                    <span class="text-xs font-medium text-slate-400 uppercase mb-2">History Timeframe</span>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="changePeriod('1h')" data-period="1h"
+                            class="period-btn bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 rounded-lg text-xs font-semibold transition">1
+                            Hour</button>
+                        <button onclick="changePeriod('24h')" data-period="24h"
+                            class="period-btn bg-emerald-600 text-white py-2 rounded-lg text-xs font-semibold transition">24
+                            Hours</button>
+                        <button onclick="changePeriod('7d')" data-period="7d"
+                            class="period-btn bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 rounded-lg text-xs font-semibold transition">7
+                            Days</button>
+                        <button onclick="changePeriod('30d')" data-period="30d"
+                            class="period-btn bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 rounded-lg text-xs font-semibold transition">30
+                            Days</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Chart Container -->
+            <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-base font-semibold text-white">Historical Sensor Telemetry</h2>
+                    <span id="data-points-count" class="text-xs text-slate-400">0 data points</span>
+                </div>
+                <div class="relative h-80 w-full">
+                    <canvas id="telemetryChart"></canvas>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- ==================== ADD DEVICE MODAL ==================== -->
+    <div id="device-modal" class="hidden fixed inset-0 bg-black/75 flex items-center justify-center p-4 z-50">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl max-w-md w-full p-6">
+            <h3 class="text-lg font-bold text-white mb-1">Register New ESP32</h3>
+            <p class="text-xs text-slate-400 mb-4">Provide a unique identifier for your hardware node.</p>
+
+            <form id="add-device-form" onsubmit="handleAddDevice(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 uppercase mb-1">Device Hardware ID</label>
+                    <input type="text" id="new-device-id" required placeholder="e.g. esp32-living-room-01"
+                        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 uppercase mb-1">Device Name
+                        (Optional)</label>
+                    <input type="text" id="new-device-name" placeholder="e.g. Living Room Sensor"
+                        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-emerald-500">
+                </div>
+
+                <!-- Token Display after creation -->
+                <div id="new-token-box" class="hidden bg-slate-950 border border-emerald-500/40 rounded-lg p-3">
+                    <p class="text-xs text-emerald-400 font-semibold mb-1">Device Registered! Copy your x-device-token:
+                    </p>
+                    <code id="generated-device-token"
+                        class="block text-xs text-slate-200 break-all select-all bg-slate-900 p-2 rounded"></code>
+                </div>
+
+                <div class="flex justify-end gap-3 pt-2">
+                    <button type="button" onclick="closeAddDeviceModal()"
+                        class="px-4 py-2 text-sm text-slate-400 hover:text-white">
+                        Close
+                    </button>
+                    <button type="submit" id="submit-device-btn"
+                        class="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold px-4 py-2 rounded-lg">
+                        Register Device
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // ==================== STATE & CONFIG ====================
+        const API_BASE = ""; // Empty string uses same origin (when served by FastAPI)
+        let accessToken = localStorage.getItem("iot_token") || null;
+        let devicesList = [];
+        let selectedDeviceId = null;
+        let currentPeriod = "24h";
+        let chartInstance = null;
+        let pollingInterval = null;
+
+        // ==================== INITIALIZATION ====================
+        document.addEventListener("DOMContentLoaded", () => {
+            initChart();
+            if (accessToken) {
+                showDashboard();
+            } else {
+                showAuth();
+            }
+        });
+
+        function showAuth() {
+            stopPolling();
+            document.getElementById("auth-view").classList.remove("hidden");
+            document.getElementById("dashboard-view").classList.add("hidden");
+        }
+
+        async function showDashboard() {
+            document.getElementById("auth-view").classList.add("hidden");
+            document.getElementById("dashboard-view").classList.remove("hidden");
+            await loadUserProfile();
+            await loadDevices();
+            startPolling();
+        }
+
+        function logout() {
+            localStorage.removeItem("iot_token");
+            accessToken = null;
+            devicesList = [];
+            selectedDeviceId = null;
+            showAuth();
+        }
+
+        // ==================== AUTH HANDLERS ====================
+        function switchAuthTab(tab) {
+            const loginForm = document.getElementById("login-form");
+            const regForm = document.getElementById("register-form");
+            const tabLogin = document.getElementById("tab-login");
+            const tabReg = document.getElementById("tab-register");
+            document.getElementById("auth-alert").classList.add("hidden");
+
+            if (tab === "login") {
+                loginForm.classList.remove("hidden");
+                regForm.classList.add("hidden");
+                tabLogin.className = "w-1/2 pb-3 text-sm font-medium border-b-2 border-emerald-500 text-emerald-400";
+                tabReg.className = "w-1/2 pb-3 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200";
+            } else {
+                loginForm.classList.add("hidden");
+                regForm.classList.remove("hidden");
+                tabReg.className = "w-1/2 pb-3 text-sm font-medium border-b-2 border-blue-500 text-blue-400";
+                tabLogin.className = "w-1/2 pb-3 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200";
+            }
+        }
+
+        function showAuthAlert(msg, isError = true) {
+            const box = document.getElementById("auth-alert");
+            box.textContent = msg;
+            box.className = `mb-4 p-3 rounded-lg text-sm ${isError ? "bg-rose-500/10 text-rose-400 border border-rose-500/30" : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"}`;
+            box.classList.remove("hidden");
+        }
+
+        async function handleLogin(e) {
+            e.preventDefault();
+            const username = document.getElementById("login-email").value;
+            const password = document.getElementById("login-password").value;
+
+            // FastAPI OAuth2PasswordBearer expects application/x-www-form-urlencoded
+            const formData = new URLSearchParams();
+            formData.append("username", username);
+            formData.append("password", password);
+
+            try {
+                const res = await fetch(`${API_BASE}/users/login`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: formData
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "Login failed");
+
+                accessToken = data.access_token;
+                localStorage.setItem("iot_token", accessToken);
+                showDashboard();
+            } catch (err) {
+                showAuthAlert(err.message, true);
+            }
+        }
+
+        async function handleRegister(e) {
+            e.preventDefault();
+            const email = document.getElementById("reg-email").value;
+            const password = document.getElementById("reg-password").value;
+
+            try {
+                const res = await fetch(`${API_BASE}/users`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "Registration failed");
+
+                switchAuthTab("login");
+                document.getElementById("login-email").value = email;
+                showAuthAlert("Account created! Please sign in.", false);
+            } catch (err) {
+                showAuthAlert(err.message, true);
+            }
+        }
+
+        // ==================== API HELPER ====================
+        async function authFetch(url, options = {}) {
+            const headers = {
+                ...(options.headers || {}),
+                "Authorization": `Bearer ${accessToken}`
+            };
+            const res = await fetch(`${API_BASE}${url}`, { ...options, headers });
+            if (res.status === 401) {
+                logout();
+                throw new Error("Session expired");
+            }
+            return res;
+        }
+
+        // ==================== USER & DEVICES ====================
+        async function loadUserProfile() {
+            try {
+                const res = await authFetch("/users");
+                if (res.ok) {
+                    const user = await res.json();
+                    document.getElementById("user-email-display").textContent = user.email || "";
+                }
+            } catch (err) {
+                console.error("Failed to fetch profile:", err);
+            }
+        }
+
+        async function loadDevices() {
+            try {
+                const res = await authFetch("/users/device/");
+                const data = await res.json();
+                // Handles both {'devices': [...]} and accidental nested {'devices': [[...]]}
+                let rawList = data.devices || [];
+                if (rawList.length === 1 && Array.isArray(rawList[0])) {
+                    rawList = rawList[0];
+                }
+                devicesList = rawList;
+
+                const selector = document.getElementById("device-selector");
+                selector.innerHTML = "";
+
+                if (devicesList.length === 0) {
+                    selector.innerHTML = `<option value="">No devices registered</option>`;
+                    selectedDeviceId = null;
+                    document.getElementById("delete-device-btn").classList.add("hidden");
+                    document.getElementById("device-hardware-id").textContent = "ID: --";
+                    clearTelemetryUI();
+                    return;
+                }
+
+                devicesList.forEach(dev => {
+                    const opt = document.createElement("option");
+                    opt.value = dev.id;
+                    opt.textContent = dev.name ? `${dev.name} (${dev.device_id})` : dev.device_id;
+                    selector.appendChild(opt);
+                });
+
+                selectedDeviceId = devicesList[0].id;
+                selector.value = selectedDeviceId;
+                updateSelectedDeviceMeta();
+                await fetchHistoricalMeasurements();
+                await fetchLatestMeasurement();
+            } catch (err) {
+                console.error("Error loading devices:", err);
+            }
+        }
+
+        function updateSelectedDeviceMeta() {
+            const dev = devicesList.find(d => d.id == selectedDeviceId);
+            if (!dev) return;
+            document.getElementById("device-hardware-id").textContent = `HW ID: ${dev.device_id}`;
+            document.getElementById("delete-device-btn").classList.remove("hidden");
+        }
+
+        async function onDeviceChange() {
+            selectedDeviceId = document.getElementById("device-selector").value;
+            updateSelectedDeviceMeta();
+            clearTelemetryUI();
+            if (selectedDeviceId) {
+                await fetchHistoricalMeasurements();
+                await fetchLatestMeasurement();
+            }
+        }
+
+        async function deleteCurrentDevice() {
+            if (!selectedDeviceId || !confirm("Delete this device and all its measurements?")) return;
+            try {
+                const res = await authFetch(`/users/device/${selectedDeviceId}`, { method: "DELETE" });
+                if (res.ok) {
+                    await loadDevices();
+                }
+            } catch (err) {
+                alert("Failed to delete device");
+            }
+        }
+
+        // ==================== ADD DEVICE MODAL ====================
+        function openAddDeviceModal() {
+            document.getElementById("add-device-form").reset();
+            document.getElementById("new-token-box").classList.add("hidden");
+            document.getElementById("submit-device-btn").classList.remove("hidden");
+            document.getElementById("device-modal").classList.remove("hidden");
+        }
+
+        function closeAddDeviceModal() {
+            document.getElementById("device-modal").classList.add("hidden");
+        }
+
+        async function handleAddDevice(e) {
+            e.preventDefault();
+            const device_id = document.getElementById("new-device-id").value;
+            const name = document.getElementById("new-device-name").value;
+
+            const payload = { device_id };
+            if (name) payload.name = name;
+
+            try {
+                const res = await authFetch("/users/device", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.detail || "Could not register device");
+
+                document.getElementById("generated-device-token").textContent = data.token;
+                document.getElementById("new-token-box").classList.remove("hidden");
+                document.getElementById("submit-device-btn").classList.add("hidden");
+                await loadDevices();
+            } catch (err) {
+                alert(err.message);
+            }
+        }
+
+        // ==================== MEASUREMENTS & POLLING ====================
+        function extractMetrics(row) {
+            // Supports both nested `row.metrics` JSON column and flat keys
+            const m = row.metrics || row;
+            const temp = m.temperature ?? m.temp ?? null;
+            const hum = m.humidity ?? m.hum ?? null;
+            return { temp, hum };
+        }
+
+        function formatTimestamp(ts) {
+            if (!ts) return "";
+            const date = new Date(ts.endsWith("Z") ? ts : ts + "Z");
+            return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        }
+
+        async function changePeriod(period) {
+            currentPeriod = period;
+            document.querySelectorAll(".period-btn").forEach(btn => {
+                if (btn.dataset.period === period) {
+                    btn.className = "period-btn bg-emerald-600 text-white py-2 rounded-lg text-xs font-semibold transition";
+                } else {
+                    btn.className = "period-btn bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 rounded-lg text-xs font-semibold transition";
+                }
+            });
+            if (selectedDeviceId) {
+                await fetchHistoricalMeasurements();
+            }
+        }
+
+        async function fetchHistoricalMeasurements() {
+            if (!selectedDeviceId) return;
+            try {
+                const res = await authFetch(`/user/device/${selectedDeviceId}/measurements?period=${currentPeriod}`);
+                if (!res.ok) return;
+                const rows = await res.json();
+
+                document.getElementById("data-points-count").textContent = `${rows.length} data points`;
+
+                const labels = [];
+                const tempData = [];
+                const humData = [];
+
+                rows.forEach(row => {
+                    labels.push(formatTimestamp(row.timestamp || row.received_at));
+                    const { temp, hum } = extractMetrics(row);
+                    tempData.push(temp);
+                    humData.push(hum);
+                });
+
+                chartInstance.data.labels = labels;
+                chartInstance.data.datasets[0].data = tempData;
+                chartInstance.data.datasets[1].data = humData;
+                chartInstance.update();
+            } catch (err) {
+                console.error("Failed to fetch historical measurements:", err);
+            }
+        }
+
+        async function fetchLatestMeasurement() {
+            if (!selectedDeviceId) return;
+            try {
+                const res = await authFetch(`/user/device/${selectedDeviceId}/measurements/latest`);
+                if (!res.ok) return;
+                const latest = await res.json();
+
+                const { temp, hum } = extractMetrics(latest);
+                document.getElementById("live-temp").textContent = temp !== null ? Number(temp).toFixed(1) : "--";
+                document.getElementById("live-humidity").textContent = hum !== null ? Number(hum).toFixed(1) : "--";
+
+                const timeStr = formatTimestamp(latest.received_at || latest.timestamp);
+                document.getElementById("last-updated").textContent = `Last update: ${timeStr}`;
+
+                // Append new point to chart if timestamp is newer than last label
+                const labels = chartInstance.data.labels;
+                if (labels.length === 0 || labels[labels.length - 1] !== timeStr) {
+                    labels.push(timeStr);
+                    chartInstance.data.datasets[0].data.push(temp);
+                    chartInstance.data.datasets[1].data.push(hum);
+
+                    // Keep chart window clean (max 100 live points)
+                    if (labels.length > 100) {
+                        labels.shift();
+                        chartInstance.data.datasets[0].data.shift();
+                        chartInstance.data.datasets[1].data.shift();
+                    }
+                    chartInstance.update("none");
+                }
+            } catch (err) {
+                // Silent fail if device has no measurements yet
+            }
+        }
+
+        function clearTelemetryUI() {
+            document.getElementById("live-temp").textContent = "--";
+            document.getElementById("live-humidity").textContent = "--";
+            document.getElementById("last-updated").textContent = "Waiting for telemetry...";
+            document.getElementById("data-points-count").textContent = "0 data points";
+            if (chartInstance) {
+                chartInstance.data.labels = [];
+                chartInstance.data.datasets[0].data = [];
+                chartInstance.data.datasets[1].data = [];
+                chartInstance.update();
+            }
+        }
+
+        function startPolling() {
+            stopPolling();
+            pollingInterval = setInterval(() => {
+                if (selectedDeviceId) fetchLatestMeasurement();
+            }, 5000);
+        }
+
+        function stopPolling() {
+            if (pollingInterval) clearInterval(pollingInterval);
+        }
+
+        // ==================== CHART.JS SETUP ====================
+        function initChart() {
+            const ctx = document.getElementById("telemetryChart").getContext("2d");
+            chartInstance = new Chart(ctx, {
+                type: "line",
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: "Temperature (°C)",
+                            data: [],
+                            borderColor: "#10b981",
+                            backgroundColor: "rgba(16, 185, 129, 0.1)",
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: true,
+                            pointRadius: 2
+                        },
+                        {
+                            label: "Humidity (%)",
+                            data: [],
+                            borderColor: "#3b82f6",
+                            backgroundColor: "rgba(59, 130, 246, 0.05)",
+                            borderWidth: 2,
+                            tension: 0.3,
+                            fill: false,
+                            pointRadius: 2
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: "index", intersect: false },
+                    plugins: {
+                        legend: { labels: { color: "#cbd5e1" } }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: "#64748b", maxTicksLimit: 10 },
+                            grid: { color: "rgba(148, 163, 184, 0.08)" }
+                        },
+                        y: {
+                            ticks: { color: "#64748b" },
+                            grid: { color: "rgba(148, 163, 184, 0.08)" }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+
+</html>
